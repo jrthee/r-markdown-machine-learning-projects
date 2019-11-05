@@ -1,0 +1,146 @@
+---
+title: "Digit Recognition"
+output: html_document
+---
+
+## Introduction
+
+This classification problem is based on the dataset used in the Kaggle Digit Recognizer competition. The objective of the problem is to recognize the handwritten digit in each image in the dataset. Each row in the data represents one image, with the first column of each row representing the digit in the image, and the remaining 784 columns representing the pixels associated with each image. To attempt to solve this classification problem, a Naive Bayes model and a k-nearest neighbors (kNN) model were trained and tested on the dataset with known labels, and then these models were used to predict the digits in the dataset with unknown labels. To begin data preprocessing, the package libraries and datasets used in this homework problem are first loaded (one dataset has known labels (digit values), the other has unknown labels). The training dataset (dataset with known labels) is analyzed and preprocessed first.
+```{r load_and_preprocess, message=FALSE}
+library(caret)
+library(e1071)
+library(RColorBrewer)
+data_train <- read.csv("Kaggle-digit-train-sample-small-1400.csv", TRUE, ",")
+data_test_unknown <- read.csv("Kaggle-digit-test-sample1000.csv", TRUE, ",")
+dim(data_train)
+dim(data_test_unknown)
+head(data_train)
+summary(data_train)
+```
+Before splitting the data, the seed is set with an arbitrary value so that the same results are achieved whenever this code is run. The method 'createDataPartition()' is used to split the data into training and testing datasets, with its first parameter being the target attribute ("label") of the dataset, its second parameter representing the percentage of the data to put into the training dataset (80% training, 20% testing), and the third parameter indicating that a list should not be returned from the method. The result of 'createDataPartition()' is then used to put the data into separate training and testing data frames.
+```{r training_data_split, message=FALSE}
+set.seed(432)
+split <- createDataPartition(y = data_train$label, p= 0.8, list = FALSE)
+data_train <- data_train[split,]
+data_test <- data_train[-split,]
+dim(data_train); 
+dim(data_test);
+```
+Preprocessing of the target attribute, "label", is done for both the training and testing datasets to convert its class from 'integer' to 'factor'; this is done so that this attribute consists of categorical data. There are ten levels within the "label" factor, each level representing a digit "0" through "9". It is then verified through the "sapply()" method that all columns, other than the "label" column, have the class 'integer'. A bar graph and pie chart are displayed for both the training and testing datasets. The bar graph indicates the number of samples per label (digit) in each dataset, and the pie chart indicates the percentage of samples per label in each dataset. It can be observed from both plots that there is a roughly equal distribution of labels within the training and testing datasets, so it is a valid split for training the models.
+```{r data_preprocess, message=FALSE}
+data_train[, 1] <- as.factor(data_train[, 1]) 
+class(data_train[, 1])
+levels(data_train[, 1])
+head(sapply(data_train[1, ], class))
+
+data_test[, 1] <- as.factor(data_test[, 1]) 
+class(data_test[, 1])
+levels(data_test[, 1])
+head(sapply(data_test[1, ], class))
+
+labelTable <- table(data_train$label) 
+barPlot <- plot(data_train$label, main = "Training Dataset: Number of Samples per Digit", ylim = c(0, 200), xlab = "Digit", ylab = "Number of Samples")
+text(x = barPlot, y = labelTable+20, labels = labelTable)
+
+colorPlot <- colorRampPalette(brewer.pal(10, "Set3"))
+percent <- round(labelTable/sum(labelTable)*100)
+labels <- paste0(row.names(labelTable), " (",percent,"%) ")
+pie(labelTable, labels = labels, col = colorPlot(10), main = "Training Dataset: Percentage of Samples per Digit")
+
+labelTable <- table(data_test$label) 
+barPlot <- plot(data_test$label, main = "Testing Dataset: Number of Samples per Digit", ylim = c(0, 50), xlab = "Digit", ylab = "Number of Samples")
+text(x = barPlot, y = labelTable+10, labels = labelTable)
+
+colorPlot <- colorRampPalette(brewer.pal(10, "Set3"))
+percent <- round(labelTable/sum(labelTable)*100)
+labels <- paste0(row.names(labelTable), " (",percent,"%) ")
+pie(labelTable, labels = labels, col = colorPlot(10), main = "Testing Dataset: Percentage of Samples per Digit")
+```
+\
+In order to achieve higher accuracy in both models, the columns with near zero variance and all-zero values are removed from both the training and testing datasets. Since the columns with near zero variance were removed, additional preprocessing is then done to scale and center the training data variables. The scaling and centering preprocessing needed for the training and testing datasets is defined in the "pre_process" variable.
+```{r data_preprocess2, message=FALSE}
+data_NZV <- nearZeroVar(data_train, saveMetrics = TRUE)
+columns_NZV <- rownames(data_NZV)[data_NZV$nzv == TRUE]
+data_train <- data_train[,!names(data_train) %in% columns_NZV]
+data_test <- data_test[,!names(data_test) %in% columns_NZV]
+pre_process <- preProcess(data_train, method = c("scale", "center"))
+pre_process
+```
+## Naive Bayes Method
+
+In addition to the general data preprocessing done for both models, the training and testing datasets are further preprocessed for the Naive Bayes algorithm by the 'predict()' function. This function takes as input both the variable containing the preprocessing information (variable 'pre_process'), as well as the dataset that should be preprocessed. Both the training and testing datasets are scaled and centered via this function.
+```{r naive_bayes, message=FALSE}
+data_train1 <- predict(pre_process, newdata = data_train)
+data_test1 <- predict(pre_process, newdata = data_test)
+```
+Now that the preprocessing steps are complete, the Naive Bayes model is trained on the training dataset. For comparative purposes with the kNN model, the amount of time taken to train this model is recorded using the method proc.time(). The Naive Bayes model uses the 'trainControl()' method as a parameter to indicate that the repeated cross-validation resampling method should be used, with a set of 8 folds repeated 3 times. The 'tuneGrid' parameter is also used to train this model, with several Bayesian method tuning values (fL (handles issue of zero probability via add-one smoothing), usekernel('FALSE' estimates normal density function)) used on the data frame. This model typically takes between 0.1-0.2 seconds to complete.
+```{r naive_bayes_model, message=FALSE}
+time <- proc.time() 
+model_naiveBayes <- naiveBayes(data_train1$label ~ ., data = data_train1, trcontrol = trainControl(method = "repeatedcv", number = 8, repeats = 3),tuneGrid = data.frame(fL = 1, usekernel = FALSE, adjust = 1))
+proc.time() - time
+```
+Now that the Naive Bayes model has been trained, the model is used to predict the target attribute ('label') values on the testing dataset. A confusion matrix is then displayed, showing the number of correct and incorrect predictions made for each digit in the dataset. The matrix shows that an accuracy of 84.55% was achieved from using the Naive Bayes model to predict the labels of the testing dataset.
+```{r naive_bayes2, message=FALSE}
+predict_naiveBayes <- predict(model_naiveBayes, newdata = data_test1, type = "class")
+confusionMatrix(predict_naiveBayes, data_test1$label)
+```
+With a decent accuracy of achieved by the Naive Bayes model, this model is then used to predict the values of the target 'label' attribute in the dataset with unknown label values. Before the predictions are made, the dataset with unknown values is first preprocessed by using the 'predict()' function and the 'pre_process' variable (used formerly on the training and testing datasets). It is not necessary to convert the 'label' attribute in this dataset to be of the 'factor' class, since each value of this attribute is equal to "?" (as shown by the 'head()' function). The label predictions are then made and displayed for each of the 1000 samples in the unknown-label dataset. A bar graph and pie chart of the predictions are also displayed, with the bar graph showing the number of samples predicted per label (digit), and the pie chart showing the percentage of samples predicted per label in the dataset.
+```{r predict_unknown, message=FALSE}
+head(data_test_unknown)
+data_test_unknown1 <- predict(pre_process, newdata = data_test_unknown)
+predict_naiveBayes <- predict(model_naiveBayes, newdata = data_test_unknown1, type = "class")
+predict_naiveBayes
+
+labelTable <- table(predict_naiveBayes) 
+barPlot <- plot(predict_naiveBayes, main = "Naive Bayes Label Prediction: Number of Samples per Digit", ylim = c(0, 200), xlab = "Digit", ylab = "Number of Samples")
+text(x = barPlot, y = labelTable+20, labels = labelTable)
+
+colorPlot <- colorRampPalette(brewer.pal(10, "Set3"))
+percent <- round(labelTable/sum(labelTable)*100)
+labels <- paste0(row.names(labelTable), " (",percent,"%) ")
+pie(labelTable, labels = labels, col = colorPlot(10), main = "Naive Bayes Label Prediction: Percentage of Samples per Digit")
+```
+```{r filler}
+```
+## K-Nearest Neighbor Method
+
+The K-Nearest Neighbor (kNN) model is now trained and tested on the same datasets used by the Naive Bayes model. Similar to the Naive Bayes model, the datasets for the kNN model also require preprocessing steps in addition to the general data preprocessing steps already done. Preprocessing is done on the both the training and testing datasets for the kNN model via the 'predict()' function and 'pre_process' variable, which scales and centers the data.
+```{r kNN_preprocess, message=FALSE}
+data_train2 <- predict(pre_process, newdata = data_train)
+data_test2 <- predict(pre_process, newdata = data_test)
+```
+Now that the preprocessing steps are complete, the kNN model is trained on the training dataset. For comparative purposes with the Naive Bayes model, the amount of time taken to train this model is recorded using the method proc.time(). The kNN model uses the 'trainControl()' method as a parameter to indicate that the repeated cross-validation resampling method should be used, with a set of 8 folds repeated 3 times. The 'tuneGrid' parameter is also used to train this model, with the tuning value 'k = seq(1, 5)' used on the data frame so that 'k' values equal to numbers from 1 to 5 are used when training the model. This model typically takes between 14-17 seconds to complete. The printed model below indicates that the highest accuracy was achieved with k = 1.
+```{r knn_model, message=FALSE}
+ctrl <- trainControl(method="repeatedcv", number = 8, repeats = 3)
+time <- proc.time() 
+model_knn <- train(label ~ ., data = data_train2, method = "knn", trControl = ctrl, tuneGrid = data.frame(k = seq(1, 5)))
+proc.time() - time
+print(model_knn)
+```
+Now that the kNN model has been trained, the model is used to predict the target attribute ('label') values on the testing dataset. A confusion matrix is then displayed, showing the number of correct and incorrect predictions made for each digit in the dataset. The matrix shows that an accuracy of 100% was achieved from using the kNN model to predict the labels of the testing dataset. A sensitivity analysis of the kNN model is also displayed, showing the accuracy (measured by repeated cross-validation) achieved for each k (number of neighbors) value.
+```{r knn_predict, message=FALSE}
+predict_knn <- predict(model_knn, newdata = data_test2)
+confusionMatrix(predict_knn, data_test2$label)
+plot(model_knn)
+```
+\
+With an accuracy of 100% achieved by the kNN model, this model is then used to predict the values of the target 'label' attribute in the dataset with unknown label values. Before the predictions are made, the dataset with unknown values is first preprocessed by using the 'predict()' function and the 'pre_process' variable (used formerly on the training and testing datasets). The label predictions are then made and displayed for each of the 1000 samples in the unknown-label dataset. A bar graph and pie chart of the predictions are also displayed, with the bar graph showing the number of samples predicted per label (digit), and the pie chart showing the percentage of samples predicted per label in the dataset.
+```{r knn_predict_unknown, message=FALSE}
+data_test_unknown2 <- predict(pre_process, newdata = data_test_unknown)
+predict_knn <- predict(model_knn, newdata = data_test_unknown2, type = "raw")
+predict_knn
+
+labelTable <- table(predict_knn) 
+barPlot <- plot(predict_knn, main = "kNN Label Prediction: Number of Samples per Digit", ylim = c(0, 200), xlab = "Digit", ylab = "Number of Samples")
+text(x = barPlot, y = labelTable+20, labels = labelTable)
+
+colorPlot <- colorRampPalette(brewer.pal(10, "Set3"))
+percent <- round(labelTable/sum(labelTable)*100)
+labels <- paste0(row.names(labelTable), " (",percent,"%) ")
+pie(labelTable, labels = labels, col = colorPlot(10), main = "kNN Label Prediction: Percentage of Samples per Digit")
+```
+```{r filler2}
+```
+## Algorithm Performance Comparison
+
+After training and testing both the Naive Bayes and kNN models, it is apparent that there are tradeoffs in time and accuracy when using each algorithm, and that neither algorithm outperforms the other in both categories. The Naive Bayes model achieved an accuracy of 84.55%, while the kNN model had an accuracy of 100%. Although the kNN model had such a high accuracy, higher than that of the Naive Bayes model, an accuracy of 100% could indicate that overfitting occurs in this model. The accuracy achieved by the Naive Bayes model indicates that less overfitting likely occurs in that model. Regarding the time taken for each model to train and run, it is clear that the Naive Bayes model runs significantly faster than the kNN model. The Naive Bayes model typically finished running within 0.1-0.2 seconds, while the kNN model typically finished running within 14-17 seconds. The fast runtime achieved by the Naive Bayes model, in addition to its decent accuracy, may make this model an ideal choice when working with huge datasets. When working with smaller datasets, the kNN model may be an ideal choice, since it still completes running within a matter of seconds, and its accuracy is highly superior to that of the Naive Bayes model. The faster speed achieved by the Naive Bayes model is likely due to the fact that Naive Bayes algorithms considers there to be conditional independence between all features, which greatly reduces the number of probabilities to estimate between the features. This assumption made by Naive Bayes algorithms is also likely responsible for the lower accuracy achieved by this model, as dependence between features (pixel values in this case) often exists; therefore, ignoring these potential dependencies likely decrease the accuracy of the model. KNN algorithms are primarily based upon the idea that similar behavior is typically seen between data points close to each other. In kNN algorithms, if a small number of neighbors is used in the model (low 'k' values), overfitting (high variance) is typically observed, while higher number of neighbors used (high 'k' values) typically results in a large bias. Lower 'k' values were chosen for the kNN model used in this assignment in order to lower the amount of time taken for the model to complete, but these low 'k' values also likely resulted in the potential overfitting observed. The high accuracy achieved by the kNN model used is likely due to the type of classification problem itself. This classification problem primarily involves finding similarities amongst the samples in the datasets (particularly finding similarities and relationships amongst the pixel values), which is the type of classification problem in which kNN algorithms perform best. The tradeoffs observed between both models indicate that the best model to use for classification problems simply depends on the specific problem and dataset(s) being evaluated.
