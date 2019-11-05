@@ -1,0 +1,101 @@
+---
+title: "Banking Data Analysis"
+output: html_document
+---
+
+## Association Rule Mining
+
+This association rule mining task focuses on analyzing banking data, with each row in the dataset representing an individual person, and each column in the dataset representing attributes related to that person's banking and demographic information. The goal of this task is to discover association rules within this dataset, particularly rules related to whether or not a particular person would want to obtain a PEP (Personal Equity Plan). To begin data preprocessing, the package libraries and banking dataset used in this problem are first loaded.
+```{r load_data, message=FALSE}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(arules)
+bank_data <- read.csv("bankdata.csv", TRUE, ",")
+dim(bank_data)
+str(bank_data)
+```
+Preprocessing of the data is done by first removing the unnecessary attribute, 'id', from the dataset, as well as removing any 'NA' values that may be present in the dataset. All numeric attributes are then converted to the 'factor' class, as numerical attributes need to be discretized for association rule discovery. As a final preprocessing step, the dataset is converted from the 'data frame' class to the 'transactions' class (another requirement of association rule mining). Three dataset items (transactions) are displayed to help visualize the data.
+```{r preprocess_data, message=FALSE}
+bank_data <- bank_data %>%
+    select(-id) %>%
+    drop_na() 
+bank_data$age <- factor(bank_data$age)
+bank_data$income <- factor(bank_data$income)
+bank_data$children <- factor(bank_data$children)
+
+bank_data <- as(bank_data, "transactions")
+class(bank_data)
+inspect(head(bank_data, 3))
+```
+Now that the data has been preprocessed, association rule discovery is performed with various parameters until the optimal amount of strong rules (about 20-30 rules) is achieved. In order to get roughly 20-30 strong rules (rules with high lift and confidence, as well as decent support), the 'apriori()' function was used on the bank data. Several parameter values were tested to achieve the desired amount of strong rules; in particular, various values of the 'support', 'confidence', and 'minlen' parameters were tested to narrow down the rules discovered. Although increasing those three parameters to several different values did narrow down the amount of rules discovered, in order to get on the order of 20-30 strong rules, the 'arem' parameter was used to narrow down the amount of rules even further. 20-30 strong rules were achieved by setting the 'support' parameter to 0.14, the 'confidence' parameter to 0.7, the 'minlen' parameter (minimum number of items required in a rule) to 3, and the 'arem' parameter to 'diff'. The association rule, support, confidence, lift, and count are displayed for 10 of the strong rules discovered. The strong rules discovered had support values (approximately) between 0.15-0.3, confidence values between 0.75-0.97, and lift values between 1.3-1.65.
+```{r rule_discovery, message=FALSE}
+bank_rules <- apriori(bank_data, parameter = list(support = 0.01,confidence = 0.5,minlen = 3))
+bank_rules <- apriori(bank_data, parameter = list(support = 0.05,confidence = 0.6,minlen = 3))
+bank_rules <- apriori(bank_data, parameter = list(support = 0.14,confidence = 0.70,minlen = 3,arem="diff"))
+inspect(head(sort(bank_rules, by = "lift", decreasing = T), 10))
+```
+In order to see which strong rules have a strong correlation to the 'pep' attribute, indicating which combinations of attributes result in customers wanting or not wanting PEP, the right hand side (RHS) of the rules are set to be equal to only either 'pep=YES' or 'pep=NO'. After narrowing the strong rules down to those with their RHS equal to the PEP attribute, only 7 strong rules were discovered.
+```{r pep_rules, message=FALSE}
+bank_rules <- apriori(bank_data, parameter = list(support = 0.14,confidence = 0.70,minlen = 3,arem="diff"), appearance = list(default = "lhs", rhs = c("pep=YES", "pep=NO")))
+inspect(head(sort(bank_rules, by = "lift", decreasing = T), 10))
+```
+The top 5 most interesting rules (in no particular order), along with their support, confidence, and lift values, are as follows:
+
+1: {married=YES, children=0, save_act=YES} => {pep=NO}; support=0.178; confidence=0.899; lift=1.655
+
+2: {married=YES, children=0, mortgage=NO} => {pep=NO}; support=0.173; confidence=0.896; lift=1.650
+
+3: {married=YES, children=0, current_act=NO} => {pep=NO}; support=0.175; confidence=0.789; lift=1.453
+
+4: {children=0, save_act=YES, current_act=YES} => {pep=NO}; support=0.168; confidence=0.759; lift=1.398
+
+5: {married=NO, mortgage=NO} => {pep=YES}; support=0.153; confidence=0.708; lift=1.550
+
+A clear pattern and correlation exists between certain customer attributes and their decision of whether or not to obtain the new PEP of this banking company. Based on the interesting rules 1-3 listed above, it's apparent that individuals that are married, but do not have children, are not likely to obtain the PEP. The high confidence and lift values observed in those rules indicate that their is a strong correlation between those attributes (married, no kids) and not obtaining PEP. Rules 1 and 3 are particularly interesting compared to one another, in that rule 1 indicates that married individuals without kids that do have a savings account with the company are not likely to obtain a PEP, but married individuals without kids that do not have a current account with the company are also not likely to obtain a PEP; these two rules indicate that the stronger correlation of not obtaining a PEP likely comes from being married without kids, and not whether or not an individual has a savings or current account with the company. The third attribute of rule indicates that married individuals without kids that do not have mortgages are not likely to obtain a PEP. All of these rules indicate that it would not be in the best interest of this company to send mail and offers of obtaining a PEP to customers that fit these attributes, particularly married customers without kids. Rule 4 reaffirms that individuals with no kids are not likely to obtain a PEP, in that this rule indicates that many individuals that have both a current and savings account with this company, but do not have kids, are not likely to obtain a PEP. It may seem to be intuitive that customers that have a current and savings account with this company may be inclined to obtain a PEP, but this company should factor in whether or not those customers have children in order to decide whether or not to advertise PEP to those customers. Rule 5 is also an interesting rule to consider for business decisions of advertising PEP to customers, as this rule indicates that unmarried individuals without mortgages are likely to obtain the new PEP, so it would be in the best interest of the company to send mail and PEP advertisements to these customers.
+
+To elaborate on the significance of these rules, it's important to understand the meaning of support, confidence, and lift, and how these values were computed from the data. To explain these values, consider rule 1: {married=YES, children=0, save_act=YES} => {pep=NO}. This rule has support=0.178, confidence=0.899, and lift=1.655. The support value for this rule was calculated by dividing the number of times the attributes "married=YES", "children=0", "save_act=YES" and "pep=NO" appeared together in a person's banking profile (number of individuals that fit those attributes) by the total number of individuals being considered (total number of people (rows in dataset)=600). The confidence value for this rule was calculated by dividing the number of times the attributes "married=YES", "children=0", "save_act=YES" and "pep=NO" appeared together in a person's banking profile divided by the number of times the attributes "married=YES", "children=0", and "save_act=YES" appeared together in a person's banking profile. This confidence value indicates the frequency in which "pep=NO" occurs in individuals that have the attributes "married=YES", "children=0", and "save_act=YES". The lift value for this rule indicates the degree of dependecy between the attributes "married=YES", "children=0", "save_act=YES" with the attribute "pep=NO". Lift values greater than 1 indicate that there is a dependency between between the former and latter attributes (dependency between left and right hand side of the association rule), which is observed in all five interesting association rules detected for PEP as the RHS. The lift value for rule 5 was computed by dividing the support of the attributes "married=YES", "children=0", "save_act=YES" and "pep=NO" by the product of the support of the attributes "married=YES", "children=0", "save_act=YES" with the support of "pep=NO" (support(LHS&RHS)/support(LHS)*support(RHS)). The support, confidence, and lift values computed for rule 5 indicate a strong correlation between the LHS and RHS of this association rule.
+
+## Cluster Analysis
+
+This cluster analysis task focuses on investigating the authorship of the Federalist papers, with 11/85 of these papers having a disputed authorship of either Alexander Hamilton or James Madison. Each row in the dataset used for this problem represents the one paper, with the author of each paper being either "Hamilton", "Madison", "Jay", "HM" (Hamilton and Madison), or "dispt" (disputed authorship), and the feature values (percentage of each word occurence in the paper) being the remaining attributes of the dataset. The goal of this task is to use the k-Means and HAC clustering algorithms to provide evidence to draw conclusions on whether or not Hamilton or Madison wrote each disputed paper. To begin data preprocessing, the package libraries and banking dataset used in this problem are first loaded.
+```{r load2, message=FALSE}
+library("factoextra")
+essay_data <- read.csv("Disputed_Essay_data.csv", TRUE, ",")
+dim(essay_data)
+str(essay_data)
+```
+Preprocessing of the data is done by first removing the unnecessary attribute, 'filename', from the dataset. The 'author' column of the dataset is needed to be converted to be the row names for the dataframe. Since the row names for the dataset are required to be unique values in order to be processed, the author column is passed as a paramter into the function 'make.names()', along with the parameter 'unique=TRUE'. These new row names are combined with the remaining columns of class 'num' via the function 'data.frame()'. The row names are displayed to verify that the new row names are unique in value, and are in the format "dispt", "dispt.1", "dispt.2", "dispt.3", "dispt.4", etc. for each author. Any 'NA' values potentially present in the dataset are then removed, and the final step of preprocessing uses the function 'scale' to scale and center the dataset. The 'head()' function is used on the dataset before and after scaling and centering in order to display the new values.
+```{r preprocess2, message=FALSE}
+essay_data <- essay_data[,!(names(essay_data) %in% c("filename"))]
+essay_data <- data.frame(essay_data[,-1], row.names = make.names(essay_data[,1], unique = TRUE))
+row.names(essay_data)
+
+essay_data <- na.omit(essay_data)
+head(essay_data)
+essay_data <- scale(essay_data, center = T, scale = T)
+head(essay_data)
+```
+Before performing the 'kmeans()' function on the dataset, the seed is first set to an arbitrary value so that the same results are achieved whenever this code is run. After the seed is set, the 'kmeans()' function is run on the dataset, along with parameters indicating that 4 clusters (centroids) should be produced in the output (parameter 'centers'), 25 random sets should be selected (paramter 'nstart'), at most 100 interations are permitted (parameter 'iter.max'), and that the algorithm "Hartigan-Wong" should be used (parameter 'algorithm'). The results of the k-Means clustering algorithm are displayed in two different formats, 'str(kmeans_output)' and 'kmeans_output'. The former format of the results displays several values of the components associated with the returned 'kmeans' object, including the components 'cluster', 'centers', 'totss', 'withinss', 'betweenss', etc. The latter format of the results displays the mean values associated with each cluster and word attribute, the cluster in which each Federalist paper is grouped in, the sum of squares per cluster, and the components available mentioned previously.
+```{r kmeans, message=FALSE}
+set.seed(1234)
+kmeans_output <- kmeans(essay_data, centers = 4, nstart = 25, iter.max = 100, algorithm = "Hartigan-Wong")
+str(kmeans_output)
+kmeans_output
+```
+The 'fviz_cluster()' method is then performed on the 'kmeans' object returned from the 'kmeans()' function in order to visualize the output in a multidimensional graph, in which the number of clusters indicated as a parameter in the 'kmeans()' function (4 clusters in this case) are displayed in differing colors. All 85 papers are displayed in this graph, with each paper being displayed in the cluster/centroid in which it was found to be the most closely associated with by the 'kmeans()' function. The 'fviz_cluster()' function takes as arguments the returned kmeans object, a palette indicating the colors for the four clusters, the theme and title of the graph, as well as the size of the font for the text written on the graph.
+```{r fviz, message=FALSE}
+fviz_cluster(kmeans_output, data = essay_data,
+             palette = c("#FF0000","#00FF00","#0000FF","#FF7F00"),
+             ggtheme = theme_minimal(),
+             main = "K-Means Cluster Analysis",
+             labelsize = 6)
+```
+\
+It's apparent to see in the plot returned by the 'fviz_cluster()' method that there are four distinct clusters/centroids in which the 85 Federalist papers were grouped, with two of these clusters having a slight overlap between them. The orange cluster primarily contains the papers written by Jay, the red cluster primarily contains the papers written by both Hamilton and Madison together, along with a few papers from either Hamilton or Madison, the blue cluster primary contains the papers written by Madison, and the green cluster primarily contains the papers written by Hamilton. There are 11 papers in the red ('HM' and mixed) cluster, 46 in the green ("Hamilton") cluster, 24 in the blue ("Madison") cluster, and 4 in the orange ("Jay") cluster, which is proportional to the number of papers actually written per author. Based on the evidence provided by the centroids in this plot, conclusions can be drawn on whether or not Hamilton or Madison wrote each disputed paper. Out of the 11 disputed papers, 8 of these papers are unquestionably in the blue cluster, which primarily contains the papers written by Madison; therefore, it is likely that these 8 disputed papers are also written by Madison. 2/11 of the disputed papers are in a cross section between the blue (Madison) and green (Hamilton) clusters, so the conclusion of whether or not Hamilton or Madison wrote those 2 papers is less certain. Based on the fact that these two papers are located in the far left area of the green cluster, and farther away from the green centroid center than they are from the blue centroid center, it is more likely that these two papers were written by Madison, rather than Hamilton. The 11th paper is located in the red cluster, which contains the three papers written by both Hamilton and Madison, as well as a few papers written by either Hamilton or Madison; therefore, the author of this paper is also more difficult to conclude. Due to the fact that this paper is also closer to the center of the blue centroid than the center of the green centroid, it can be presumed that this paper was also written by Madison. The most useful attribute of these centroids for clustering analysis and drawing conclusions seems to be the location of the center of each centroid, as the centroid center values on these dimensions are far enough apart from each other to easily distinguish these clusters from one another and draw reasonable conclusions on who wrote the disputed essays.
+
+A cluster analysis is then done on the same dataset using the HAC (Hierarchical Clustering) algorithm. As all necessary preprocessing has already been done on the datset for the k-Means algorithm, the dataset is passed into the 'hclust()' function via the 'dist()' function. In this 'dist()' function, the Euclidean distance function is specified as the method to be used. In addition to the 'dist()' function being passed as a parameter to the 'hclust()' method, a parameter indicating that the 'complete' agglomeration method should be used is also passed. The output from the 'hclust()' method is then plotted, along with the font size, hang, and title specified in the 'plot()' function. It's clear to see in the plot displayed for the HAC output that there are distinct groupings (clusters) of each of the authors. Most of Jay's papers are grouped to the far left of the plot, Hamilton's papers are grouped continuously after Jay's, followed by Madison's papers, and finally the papers written by both Hamilton and Madison. Out of the 11 papers with disputed authorship, it appears that 8/11 of these papers are clearly mixed with papers written by Madison, so a conclusion can be drawn that these 8 papers were in fact written by Madison. The 3 remaining disputed papers seem to be mixed with papers written by Hamilton, although their placement in Hamilton's cluster is close to the right hand side, particularly close to Madison's cluster. Based on the visual evidence displayed in this HAC plot, it is reasonable to conclude that these 3 papers were more likely written by Hamilton, rather than Madison.  
+```{r hac, message=FALSE}
+hac_output <- hclust(dist(essay_data, method = "euclidean"), method = "complete")
+plot(hac_output,cex = 0.5, hang = -1, main = "HAC Cluster Analysis")
+```
