@@ -1,0 +1,165 @@
+---
+title: "Authorship Attribution and Educational Data Mining"
+output: html_document
+---
+
+## Authorship Attribution
+
+The package libraries and dataset used in this homework problem are loaded, and the data is then cleaned by removing the unnecessary attribute, "filename". Two data frames are then created from the initial dataset; one data frame contains the rows of data with the author attribute value "Hamilton" or "Madison", and the other data frame contains the rows of data with the author attribute value "dispt". The factor() method is then used to assure that only the required levels of the author factor are included in the data.
+```{r load_data1, message=FALSE}
+library(rpart)
+library(caret)
+library(rpart.plot)
+library(rattle)
+essayData <- read.csv("Disputed_Essay_data.csv", TRUE, ",")
+essayData <- essayData[,!(names(essayData) %in% c("filename"))]
+dataHamMad <- essayData[-c(1:11,63:70),]
+dataDispt <- essayData[-c(12:85),]
+dataHamMad$author <- factor(dataHamMad$author)
+dataDispt$author <- factor(dataDispt$author)
+str(dataHamMad)
+str(dataDispt)
+```
+The dataset containing the essays written by either Hamilton or Madison is split into training and testing datasets. Before splitting the data, set.seed() is first used with an arbitrary value so that the same results are achieved when this code is replicated (as long as the same seed value is used). The method 'createDataPartition()' is used to split the data into training and testing datasets, with its first parameter being the target attribute ("author") of the dataset, its second parameter representing the percentage of the data to put into the training dataset (80% training, 20% testing), and the third parameter indicating that a list should not be returned from the method. The result of 'createDataPartition()' is then used to put the data into separate training and testing data frames.
+```{r split_data1, message=FALSE}
+set.seed(123)
+split <- createDataPartition(y = dataHamMad$author, p= 0.8, list = FALSE)
+trainSet <- dataHamMad[split,]
+testSet <- dataHamMad[-split,]
+dim(trainSet); 
+dim(testSet);
+```
+The training dataset is trained based on the target attribute "author", with the tuning parameters "metric" and "method" specified. The printed model indicates that the maximum accuracy achieved in this model was 91.28%, and the complexity parameter chosen for this model was 0.4583.
+```{r train_data1, message=FALSE}
+set.seed(234)
+dt_model <- train(author ~ ., data = trainSet, metric = "Accuracy", method = "rpart")
+print(dt_model)
+```
+The "author" attribute was then predicted for the testing dataset based on the model built from the training dataset. The probabilities of each prediction being correct for each entry in the dataset are first displayed, followed by the raw predicted values for the "author" attribute. The confusion matrix is then displayed for this model, indicating that the model was able to accurately predict the authors for the entire testing dataset.
+```{r test_data1, message=FALSE}
+dt_predict <- predict(dt_model, newdata = testSet, type="prob")
+dt_predict
+dt_predict2 <- predict(dt_model, newdata = testSet, type="raw")
+dt_predict2
+confusionMatrix(dt_predict2,testSet$author)
+```
+To try to improve overall accuracy, a second model was built from the same training and testing datasets. This model uses the 'trainControl()' method to indicate that the repeated cross-validation resampling method should be used, with a set of 8 folds repeated 3 times. The printed model indicates that the maximum accuracy achieved in this model was 96.11%, which is higher than the previous model, and the complexity parameter chosen for this model was 0.8148. The "author" attribute was then predicted for the testing dataset based on this model, using the parameters "method", "trControl", and "tuneLength"; it yielded identical prediction probabilities as the first model.
+```{r train_test2, message=FALSE}
+control <- trainControl(method = "repeatedcv", number = 8, repeats = 3)
+set.seed(345)
+dt_model_tune <- train(author ~.,data = trainSet, method = "rpart",trControl=control, tuneLength=8)
+print(dt_model_tune)
+dt_predict3 <- predict(dt_model_tune, newdata = testSet, type="prob")
+dt_predict3
+```
+Both models predicted the authors of the testing dataset with 100% accuracy, with the second model yielding slightly higher overall accuracy when trained. The second model was therefore chosen as the best performance model, and was used to predict the authors of the dataset containing the essays with disputed authors. It was predicted that the author of all 11 disputed papers was Madison, with a correctness of 92.3% for each prediction.
+```{r predict_dispt, message=FALSE}
+dt_predictDispt <- predict(dt_model_tune, newdata = dataDispt, type="prob")
+dt_predictDispt
+predict(dt_model_tune, newdata = dataDispt, type="raw")
+```
+Two visualizations of the decision tree created from the best performance model are shown below. The prediction of authorship was based on the frequency in which the word "upon" was used in each author's essays.
+```{r plot, message=FALSE}
+fancyRpartPlot(dt_model_tune$finalModel)
+prp(dt_model_tune$finalModel)
+```
+
+## Educational Data Mining
+
+The package libraries and dataset used in this homework problem are first loaded. 
+```{r load_data, message=FALSE}
+library(recipes)
+library(tidyverse)
+library(rsample)
+library(keras)
+library(tidyquant)
+student_data <- read.csv("Students_ Academic Performance.csv", TRUE, ",")
+str(student_data)
+```
+The data preprocessing begins by pruning the data of any potential NA values and moving the target 'Class' column to be the first column in the dataset. The seed is set so that the same partition can be replicated when using that seed value in the future. The data is then split into training and testing datasets, with 80% of the data put into the training dataset and 20% into the testing dataset.
+```{r split_data, message=FALSE}
+student_data_tbl <- student_data %>% 
+  drop_na() %>% 
+  select(Class, everything())
+str(student_data_tbl)
+set.seed(100)
+train_test_split <- initial_split(student_data_tbl, prop = 0.8)
+train_tbl <- training(train_test_split)
+test_tbl <- testing(train_test_split)
+dim(train_tbl)
+dim(test_tbl)
+```
+The 'recipe()' function is used to handle several preprocessing steps, given as input the training dataset and target attribute object, 'Class'. The recipe below uses the 'step_discretize()' method on multiple continuous attributes in the dataset to group the values of those attributes into 10 discrete groups of values. The 'step_dummy()' method is used to convert all categorical data into columns of ones and zeros (one-hot encoding). The 'step_center()' method is used to center the data around their mean, and the 'step_scale()' method is used to scale the data. The recipe is prepared using the 'prep()' method, which estimates which parameters in the training dataset could be used in other datasets.
+```{r preprocess_data, message=FALSE}
+rec_obj <- recipe(Class ~ ., data = train_tbl) %>% 
+  step_discretize(raisedhands, options = list(cuts = 5)) %>%
+  step_discretize(VisITedResources, options = list(cuts = 5)) %>%
+  step_discretize(AnnouncementsView, options = list(cuts = 5)) %>%
+  step_discretize(Discussion, options = list(cuts = 5)) %>%
+  step_dummy(all_nominal(), -all_outcomes()) %>% 
+  step_center(all_predictors(), -all_outcomes()) %>% 
+  step_scale(all_predictors(), -all_outcomes()) %>% 
+  prep(data = train_tbl)
+rec_obj
+```
+The training and testing datasets are then split further into training and testing sets that do not contain the target 'Class' attribute (x sets), and sets that only contain the target attribute (y sets). The x sets are created via the 'bake()' method, which takes as input the recipe object just created, as well as the training dataset. The y sets are created via nested if-else statements, which convert the 'Class' attribute values of 'H', 'M' and 'L' into the numerical values 2, 1, and 0, respectively. The newly created y training set is then converted into categorical data via the method 'to_categorical()'.
+```{r preprocess_data2, message=FALSE}
+x_train_tbl <- bake(rec_obj, new_data = train_tbl) %>% select(-Class)
+x_test_tbl <- bake(rec_obj, new_data = test_tbl) %>% select(-Class)
+glimpse(x_train_tbl)
+y_train_vec <- ifelse(pull(train_tbl, Class) == "H" | pull(train_tbl, Class) == "M", 
+                      ifelse(pull(train_tbl, Class) == "H", 2, 1), 0)
+y_test_vec  <- ifelse(pull(test_tbl, Class) == "H" | pull(test_tbl, Class) == "M", 
+                      ifelse(pull(test_tbl, Class) == "H", 2, 1), 0)
+glimpse(y_train_vec)
+glimpse(y_test_vec)
+y_train_vec<-to_categorical(y_train_vec,num_classes = NULL)
+```
+A class of artificial neural networks, a multi-layer perceptron, was built using the 'keras' package. The input to this model is simply the (x set) training data. This model consists of two hidden layers, created via the 'layer.dense()' method. Each hidden layer was implemented via a uniform kernel initializer and the relu activation function. The hidden layers consist of 20 and 10 nodes, respectively. The first layer has an input shape equal to the total number of columns in the input dataset. The dropout layers all have a rate of 0.20, which controls layer overfitting. The number of nodes in the output layer is equal to the number of categories in the target attribute (3 nodes), and it is implemented via a uniform kernel initializer and the softmax activation function. The 'compile()' method was used to compile the data, using the optimization algorithm, 'adam', a loss equal to categorical_crossentropy, and it measured the accuracy for the datasets.
+```{r build_model, message=FALSE}
+model_keras <- keras_model_sequential()
+model_keras %>% 
+  layer_dense(units = 20,
+    kernel_initializer = "uniform",
+    activation = "relu",
+    input_shape = ncol(x_train_tbl)) %>% 
+  layer_dropout(rate = 0.20) %>% 
+  layer_dense(units = 10,
+    kernel_initializer = "uniform",
+    activation = "relu") %>% 
+  layer_dropout(rate = 0.20) %>% 
+  layer_dense(units = 3,
+    kernel_initializer = "uniform",
+    activation = "softmax") %>% 
+  compile(optimizer = "adam",
+    loss = "categorical_crossentropy",
+    metrics = c("accuracy")
+  )
+model_keras
+```
+The input dataset is trained on our neural network via the method 'fit()'. This method takes as input the newly created model, as well as the x and y training datasets. The sample size to be trained at one time was set via the batch_size parameter (batch size set to 55), and the amount of training cycles (epochs) was set to 130. The validation_split parameter was set to 0.20 to control overfitting. The 'plot()' method is used to visualize the trained model, via observing the training and validation loss and accuracy. As the loss and accuracy level off in the plot, the training completes. The method 'predict_classes()', which accepts as input our trained model and our test data, is used to make predictions on the test dataset. A tibble is then created to display the side-by-side comparison of the predicted data and the actual data values. A confusion matrix is then displayed, showing more specifically the number of correct and incorrect predictions made for each value of the target 'Class' attribute. The confusion matrix also displays the accuracy achieved through this artificial neural network model. This model yielded an overall accuracy of roughly 70-73%. Although this performance can be improved, a significant number of the target 'Class' attributes were successfully predicted based on the training model.
+```{r fit_model, message=FALSE}
+fit_keras <- fit(
+    object           = model_keras, 
+    x                = as.matrix(x_train_tbl), 
+    y                = y_train_vec,
+    batch_size       = 55, 
+    epochs           = 130,
+    validation_split = 0.20
+    )
+fit_keras
+
+plot(fit_keras) +
+    theme_tq() +
+    scale_color_tq() +
+    scale_fill_tq() +
+    labs(title = "Training Results")
+
+yhat_keras_class_vec <- predict_classes(object = model_keras, x = as.matrix(x_test_tbl)) %>%
+    as.vector()
+truth      = as.factor(y_test_vec) %>% fct_recode(H="2",M="1",L="0")
+estimate   = as.factor(yhat_keras_class_vec) %>% fct_recode(H="2",M="1",L="0")
+estimates_keras_tbl <- tibble(truth,estimate)
+estimates_keras_tbl
+confusionMatrix(truth, estimate)
+```
